@@ -106,3 +106,17 @@ MouseTrailV2-GL/
 - OpenGL 2.1 画线（GPU 渲染）
 - 光标位置：`GetCursorInfo` / `GetCursorPos`
 - 黑名单：读取前台窗口进程名进行匹配
+
+---
+
+## 许可证
+
+本项目使用 [MIT License](LICENSE)。
+
+## 参与贡献
+
+请阅读 [贡献指南](CONTRIBUTING.md)。
+
+安全问题请参见 [安全策略](SECURITY.md)。
+
+更新记录见 [CHANGELOG](CHANGELOG.md)。

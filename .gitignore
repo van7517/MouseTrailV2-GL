@@ -18,3 +18,5 @@ compile_commands.json
 Typora_Hook_Log.txt
 *.log
 build/
+*.zip
+MouseTrailV2-windows-x64.zip
