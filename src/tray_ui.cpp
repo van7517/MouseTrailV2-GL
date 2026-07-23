@@ -1,4 +1,5 @@
 #include "tray_ui.hpp"
+#include "resource.h"
 #include <CommCtrl.h>
 #include <TlHelp32.h>
 #include <shellapi.h>
@@ -383,7 +384,8 @@ bool tray_init(HINSTANCE inst, AppControl* ctrl) {
     ZeroMemory(&g_nid,sizeof(g_nid));
     g_nid.cbSize=sizeof(g_nid); g_nid.hWnd=tray_hwnd; g_nid.uID=ID_TRAY;
     g_nid.uFlags=NIF_MESSAGE|NIF_ICON|NIF_TIP; g_nid.uCallbackMessage=WM_TRAY;
-    g_nid.hIcon=LoadIconW(nullptr,IDI_APPLICATION);
+    g_nid.hIcon=(HICON)LoadImageW(inst, MAKEINTRESOURCEW(IDI_APPICON), IMAGE_ICON, 0, 0, LR_DEFAULTSIZE);
+    if (!g_nid.hIcon) g_nid.hIcon=LoadIconW(nullptr,IDI_APPLICATION);
     std::snprintf(g_nid.szTip,sizeof(g_nid.szTip),"MouseTrailV2 - 运行中");
     g_tray_ok = Shell_NotifyIconA(NIM_ADD,&g_nid)==TRUE;
     return g_tray_ok;
