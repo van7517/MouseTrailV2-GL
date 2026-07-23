@@ -1,16 +1,16 @@
 {
-  "opacity": 0.78,
-  "ribbon_thickness": 14.0,
+  "opacity": 0.52,
+  "ribbon_thickness": 9.0,
   "triangle_particles": false,
   "not_when_cursor_hidden": true,
   "blacklisted_processes": ["javaw.exe"],
-  "trail_lifetime_ms": 560,
-  "sample_min_distance": 1.8,
-  "max_points": 80,
+  "trail_lifetime_ms": 900,
+  "sample_min_distance": 1.6,
+  "max_points": 120,
   "fps_limit": 120,
   "toggle_hotkey": "F8",
   "quit_hotkey": "F9",
   "rainbow_hue_head": 0.95,
-  "rainbow_hue_span": 0.90,
-  "stroke_scale": 0.95
+  "rainbow_hue_span": 0.85,
+  "stroke_scale": 0.40
 }
