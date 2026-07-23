@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cwchar>
 #include <cstring>
 #include <set>
 #include <string>
@@ -41,7 +42,7 @@ constexpr int IDC_AUTOSTART = 2017;
 constexpr int IDC_TITLE = 2018;
 
 AppControl* g_ctrl = nullptr;
-NOTIFYICONDATAA g_nid{};
+NOTIFYICONDATAW g_nid{};
 bool g_tray_ok = false;
 HWND g_cfg_hwnd = nullptr;
 HINSTANCE g_inst = nullptr;
@@ -191,8 +192,9 @@ void add_selected_process_to_blacklist(HWND hwnd) {
 
 void update_tray_tip() {
     if (!g_tray_ok || !g_ctrl || !g_ctrl->enabled) return;
-    std::snprintf(g_nid.szTip, sizeof(g_nid.szTip), "MouseTrailV2 - %s", (*g_ctrl->enabled) ? "运行中" : "已暂停");
-    Shell_NotifyIconA(NIM_MODIFY, &g_nid);
+    const wchar_t* st = (*g_ctrl->enabled) ? L"运行中" : L"已暂停";
+    swprintf(g_nid.szTip, 128, L"MouseTrailV2 - %s", st);
+    Shell_NotifyIconW(NIM_MODIFY, &g_nid);
 }
 
 void apply_font(HWND hwnd) {
@@ -386,12 +388,12 @@ bool tray_init(HINSTANCE inst, AppControl* ctrl) {
     g_nid.uFlags=NIF_MESSAGE|NIF_ICON|NIF_TIP; g_nid.uCallbackMessage=WM_TRAY;
     g_nid.hIcon=(HICON)LoadImageW(inst, MAKEINTRESOURCEW(IDI_APPICON), IMAGE_ICON, 0, 0, LR_DEFAULTSIZE);
     if (!g_nid.hIcon) g_nid.hIcon=LoadIconW(nullptr,IDI_APPLICATION);
-    std::snprintf(g_nid.szTip,sizeof(g_nid.szTip),"MouseTrailV2 - 运行中");
-    g_tray_ok = Shell_NotifyIconA(NIM_ADD,&g_nid)==TRUE;
+    swprintf(g_nid.szTip, 128, L"MouseTrailV2 - 运行中");
+    g_tray_ok = Shell_NotifyIconW(NIM_ADD,&g_nid)==TRUE;
     return g_tray_ok;
 }
 void tray_shutdown() {
-    if (g_tray_ok) { Shell_NotifyIconA(NIM_DELETE,&g_nid); g_tray_ok=false; }
+    if (g_tray_ok) { Shell_NotifyIconW(NIM_DELETE,&g_nid); g_tray_ok=false; }
     if (g_cfg_hwnd) { DestroyWindow(g_cfg_hwnd); g_cfg_hwnd=nullptr; }
 }
 void tray_show_menu(HWND owner) {
