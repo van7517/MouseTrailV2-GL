@@ -84,8 +84,6 @@ static int run_app(HINSTANCE inst) {
     TrailSystem trail;
     bool enabled = true;
     bool running = true;
-    bool prev_toggle = false;
-    bool prev_quit = false;
     int frame = 0;
     bool blocked = false;
     CursorState last{};
@@ -100,9 +98,6 @@ static int run_app(HINSTANCE inst) {
     ctrl.on_config_saved = nullptr;
 
     tray_init(inst, &ctrl);
-
-    int toggle_vk = hotkey_to_vk(cfg.toggle_hotkey);
-    int quit_vk = hotkey_to_vk(cfg.quit_hotkey);
 
     auto t_prev = std::chrono::steady_clock::now();
 
@@ -134,16 +129,6 @@ static int run_app(HINSTANCE inst) {
             hide_from_taskbar(hwnd);
         }
 
-        // reload hotkeys if config changed via UI
-        toggle_vk = hotkey_to_vk(cfg.toggle_hotkey);
-        quit_vk = hotkey_to_vk(cfg.quit_hotkey);
-
-        const bool td = is_key_down(toggle_vk);
-        const bool qd = is_key_down(quit_vk);
-        if (td && !prev_toggle) enabled = !enabled;
-        if (qd && !prev_quit) running = false;
-        prev_toggle = td;
-        prev_quit = qd;
 
         if (frame % 60 == 0) {
             vs = get_virtual_screen();
