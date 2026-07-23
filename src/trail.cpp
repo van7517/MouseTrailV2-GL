@@ -32,7 +32,7 @@ void hsv_to_rgb(float h, float s, float v, float& r, float& g, float& b) {
 }
 
 void pastel_rainbow(float hue, float& r, float& g, float& b) {
-    hsv_to_rgb(hue, 0.62f, 1.0f, r, g, b);
+    hsv_to_rgb(hue, 0.58f, 0.96f, r, g, b);
 }
 
 struct Sample {
@@ -93,6 +93,75 @@ std::vector<Sample> resample(const std::vector<TrailPoint>& pts, float spacing) 
     return out;
 }
 
+float smooth01(float t) {
+    t = clampf(t, 0.0f, 1.0f);
+    return t * t * (3.0f - 2.0f * t);
+}
+
+inline void color_premul(float r, float g, float b, float a) {
+    a = clampf(a, 0.0f, 1.0f);
+    glColor4f(r * a, g * a, b * a, a);
+}
+
+void draw_ribbon_strip(const std::vector<Sample>& samples,
+                       float origin_x, float origin_y, float screen_h,
+                       float base_w, float base_a, float hue_head, float hue_span,
+                       float width_mul, float alpha_mul) {
+    if (samples.size() < 2) return;
+
+    auto to_gl = [&](float x, float y, float& gx, float& gy) {
+        gx = x - origin_x;
+        gy = screen_h - (y - origin_y);
+    };
+
+    glBegin(GL_TRIANGLE_STRIP);
+    for (size_t i = 0; i < samples.size(); ++i) {
+        float dx, dy;
+        if (i + 1 < samples.size()) {
+            dx = samples[i + 1].x - samples[i].x;
+            dy = samples[i + 1].y - samples[i].y;
+        } else {
+            dx = samples[i].x - samples[i - 1].x;
+            dy = samples[i].y - samples[i - 1].y;
+        }
+        float len = std::hypot(dx, dy);
+        if (len < 1e-4f) {
+            dx = 1.0f;
+            dy = 0.0f;
+            len = 1.0f;
+        }
+        const float nx = -dy / len;
+        const float ny = dx / len;
+
+        // p: 0 tail (oldest) .. 1 head (newest). s.p already includes age-thinning.
+        const float p = clampf(samples[i].p, 0.0f, 1.0f);
+
+        // PRIMARY disappear: width -> 0 toward tail / age end
+        const float width_env = smooth01(std::pow(p, 1.25f));
+        // Secondary soft alpha (gentle, no cliff)
+        const float alpha_env = smooth01(std::pow(p, 0.70f));
+
+        const float hue = hue_head - (1.0f - p) * hue_span;
+        float r, g, b;
+        pastel_rainbow(hue, r, g, b);
+
+        float width = base_w * width_mul * (0.25f + 0.85f * p) * width_env;
+        if (width < 0.08f && width_env > 0.001f) width = 0.08f * width_env;
+
+        const float alpha = base_a * alpha_mul * (0.40f + 0.60f * alpha_env);
+
+        float cx, cy;
+        to_gl(samples[i].x, samples[i].y, cx, cy);
+        const float gnx = nx;
+        const float gny = -ny;
+
+        color_premul(r, g, b, alpha);
+        glVertex2f(cx + gnx * width, cy + gny * width);
+        glVertex2f(cx - gnx * width, cy - gny * width);
+    }
+    glEnd();
+}
+
 } // namespace
 
 void TrailSystem::clear() {
@@ -139,7 +208,8 @@ void TrailSystem::push(float x, float y, double now, float speed, const AppConfi
 }
 
 void TrailSystem::update(double now, float dt, const AppConfig& cfg) {
-    const double life = cfg.trail_lifetime_ms / 1000.0;
+    // Slightly longer buffer; visual exit is width taper before hard removal.
+    const double life = cfg.trail_lifetime_ms / 1000.0 * 1.15;
     points.erase(std::remove_if(points.begin(), points.end(),
                                 [&](const TrailPoint& p) { return now - p.t > life; }),
                  points.end());
@@ -159,79 +229,56 @@ void TrailSystem::update(double now, float dt, const AppConfig& cfg) {
 }
 
 void TrailSystem::draw(float origin_x, float origin_y, float screen_h, double now, const AppConfig& cfg) const {
-    auto to_gl = [&](float x, float y, float& gx, float& gy) {
-        gx = x - origin_x;
-        gy = screen_h - (y - origin_y);
-    };
-
     glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    glEnable(GL_LINE_SMOOTH);
-    glHint(GL_LINE_SMOOTH_HINT, GL_NICEST);
+    glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+    glDisable(GL_LINE_SMOOTH);
+    glDisable(GL_POINT_SMOOTH);
 
     if (points.size() >= 2) {
-        const auto samples = resample(points, 3.0f);
+        auto samples = resample(points, 2.0f);
         if (samples.size() >= 2) {
+            const double life = std::max(0.05, cfg.trail_lifetime_ms / 1000.0);
+            const double head_t = points.back().t;
+            const double tail_t = points.front().t;
+            for (auto& s : samples) {
+                // Age along the stroke: old segments thin first
+                const double age_t = tail_t + (head_t - tail_t) * static_cast<double>(s.p);
+                const float age = static_cast<float>((now - age_t) / life); // 0 new .. 1 old
+                const float remain = 1.0f - clampf(age, 0.0f, 1.0f);
+                // Thin-out envelope: approaches 0 smoothly near expire (not pop-off)
+                const float thin = smooth01(std::pow(std::max(remain, 0.0f), 0.85f));
+                // Keep head preference, but force age thinning
+                s.p = clampf(s.p, 0.0f, 1.0f) * thin;
+            }
+
             const float base_a = clampf(cfg.opacity, 0.05f, 1.0f);
-            const float base_w = std::max(2.0f, cfg.ribbon_thickness * cfg.stroke_scale);
+            const float base_w = std::max(2.4f, cfg.ribbon_thickness * cfg.stroke_scale * 0.62f);
 
-            for (size_t i = 0; i + 1 < samples.size(); ++i) {
-                const float p = 0.5f * (samples[i].p + samples[i + 1].p);
-                const float fade = std::pow(p, 0.65f);
-                const float hue = cfg.rainbow_hue_head - (1.0f - p) * cfg.rainbow_hue_span;
-                float r, g, b;
-                pastel_rainbow(hue, r, g, b);
-                const float alpha = base_a * (0.18f + 0.82f * fade) * (0.55f + 0.45f * p);
-                if (alpha < 0.02f) continue;
-
-                const float width = base_w * (0.55f + 0.55f * p);
-                float x0, y0, x1, y1;
-                to_gl(samples[i].x, samples[i].y, x0, y0);
-                to_gl(samples[i + 1].x, samples[i + 1].y, x1, y1);
-
-                glLineWidth(width + 2.5f);
-                glColor4f(r, g, b, alpha * 0.33f);
-                glBegin(GL_LINES);
-                glVertex2f(x0, y0);
-                glVertex2f(x1, y1);
-                glEnd();
-
-                glLineWidth(std::max(1.0f, width));
-                glColor4f(r, g, b, alpha);
-                glBegin(GL_LINES);
-                glVertex2f(x0, y0);
-                glVertex2f(x1, y1);
-                glEnd();
-            }
-
-            float hx, hy;
-            to_gl(samples.back().x, samples.back().y, hx, hy);
-            float r, g, b;
-            pastel_rainbow(cfg.rainbow_hue_head, r, g, b);
-            const float rad = std::max(2.0f, base_w * 0.5f);
-            glColor4f(r, g, b, base_a * 0.9f);
-            glBegin(GL_TRIANGLE_FAN);
-            glVertex2f(hx, hy);
-            for (int i = 0; i <= 16; ++i) {
-                const float a = 6.2831853f * static_cast<float>(i) / 16.0f;
-                glVertex2f(hx + std::cos(a) * rad, hy + std::sin(a) * rad);
-            }
-            glEnd();
+            draw_ribbon_strip(samples, origin_x, origin_y, screen_h, base_w, base_a,
+                              cfg.rainbow_hue_head, cfg.rainbow_hue_span, 1.45f, 0.32f);
+            draw_ribbon_strip(samples, origin_x, origin_y, screen_h, base_w, base_a,
+                              cfg.rainbow_hue_head, cfg.rainbow_hue_span, 0.95f, 0.72f);
+            draw_ribbon_strip(samples, origin_x, origin_y, screen_h, base_w, base_a,
+                              cfg.rainbow_hue_head, cfg.rainbow_hue_span, 0.40f, 1.00f);
         }
     }
 
     if (cfg.triangle_particles) {
         const float base_a = clampf(cfg.opacity, 0.05f, 1.0f);
+        auto to_gl = [&](float x, float y, float& gx, float& gy) {
+            gx = x - origin_x;
+            gy = screen_h - (y - origin_y);
+        };
         for (const auto& p : particles) {
             const float fade = clampf(1.0f - static_cast<float>((now - p.birth) / p.life), 0.0f, 1.0f);
             if (fade <= 0.0f) continue;
             float r, g, b;
             pastel_rainbow(p.hue, r, g, b);
             const float a = base_a * fade * 0.75f;
-            const float s = p.size * (0.4f + 0.6f * fade);
+            const float s = p.size * fade; // shrink away
             float cx, cy;
             to_gl(p.x, p.y, cx, cy);
-            glColor4f(r, g, b, a);
+            color_premul(r, g, b, a);
             glBegin(GL_TRIANGLES);
             for (int k = 0; k < 3; ++k) {
                 const float ang = p.rot + 6.2831853f * static_cast<float>(k) / 3.0f;
@@ -240,6 +287,4 @@ void TrailSystem::draw(float origin_x, float origin_y, float screen_h, double no
             glEnd();
         }
     }
-
-    glLineWidth(1.0f);
 }
