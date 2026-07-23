@@ -1,11 +1,42 @@
 # MouseTrailV2
 
-Windows 独立鼠标轨迹小工具：彩虹色幽灵缎带效果。
+Windows 鼠标轨迹小工具：彩虹幽灵缎带效果。
+
+**当前版本：v0.1.2**
 
 - C++ + OpenGL + GLFW
-- 全屏透明叠加、鼠标点击穿透、始终置顶
-- 彩虹渐变轨迹
-- GitHub Actions 自动编译 Windows x64
+- 托盘后台运行（不占任务栏、无控制台）
+- 全屏透明叠加、点击穿透、始终置顶
+- 中文设置界面
+- 发布包仅一个 `MouseTrailV2.exe`
+
+---
+
+## 下载
+
+1. 打开 [Releases](https://github.com/van7517/MouseTrailV2-GL/releases)
+2. 下载 **v0.1.2** 的 `MouseTrailV2-windows-x64.zip`（或最新 Release）
+3. 解压得到 **唯一文件** `MouseTrailV2.exe`，双击运行
+
+也可在 [Actions](https://github.com/van7517/MouseTrailV2-GL/actions) 下载最新构建产物。
+
+---
+
+## 使用
+
+| 操作 | 说明 |
+|------|------|
+| 运行 | 双击 `MouseTrailV2.exe`，图标出现在右下角托盘 |
+| 托盘右键 | **暂停轨迹** / **继续轨迹**、**设置...**、**退出** |
+| 双击托盘 | 打开设置 |
+| `F8` | 开关轨迹 |
+| `F9` | 退出 |
+
+配置自动保存在：
+
+`%AppData%\MouseTrailV2\config.json`
+
+无需手动编辑；改完设置点「应用」即可。
 
 ---
 
@@ -13,73 +44,42 @@ Windows 独立鼠标轨迹小工具：彩虹色幽灵缎带效果。
 
 | 项目 | 说明 |
 |------|------|
-| 幽灵缎带 | 细长连续彩虹轨迹 |
-| 透明度 / 粗细 | 在 `config.json` 中调整 |
+| 幽灵缎带 | 连续彩虹轨迹，按宽度逐渐变细消失 |
+| 可视化设置 | 透明度、粗细、缩放、残留时间等 |
+| 缩放 Scale | 范围 **1～10** |
+| 残留时间 | 默认 **800 ms**（可调） |
+| 进程黑名单 | 前台命中名单时不画轨迹；可从运行进程列表点选添加 |
+| 光标隐藏时禁用 | 可选 |
 | 三角形粒子 | 可选，默认关闭 |
-| 进程黑名单 | 默认 `javaw.exe` 前台时不画轨迹 |
-| 光标隐藏时禁用 | 默认开启 |
-| 快捷键 | `F8` 开关 / `F9` 退出 |
+| 开机自启 | 设置中可开关（写入当前用户启动项） |
 
 ---
 
-## 下载使用
+## 设置项说明
 
-1. 打开本仓库 [Releases](https://github.com/van7517/MouseTrailV2-GL/releases)
-2. 下载 `MouseTrailV2-windows-x64.zip`
-3. 解压后运行 `MouseTrailV2.exe`（请与 `config.json` 放在同一目录）
-
-也可在 **Actions** 中下载最新构建产物。
-
----
-
-## 配置说明（`config.json`）
-
-```json
-{
-  "opacity": 0.55,
-  "ribbon_thickness": 10.0,
-  "triangle_particles": false,
-  "not_when_cursor_hidden": true,
-  "blacklisted_processes": ["javaw.exe"],
-  "trail_lifetime_ms": 480,
-  "sample_min_distance": 2.0,
-  "max_points": 64,
-  "fps_limit": 120,
-  "toggle_hotkey": "F8",
-  "quit_hotkey": "F9",
-  "rainbow_hue_head": 0.95,
-  "rainbow_hue_span": 0.95,
-  "stroke_scale": 0.55
-}
-```
-
-| 字段 | 含义 |
-|------|------|
-| `opacity` | 整体透明度 0~1 |
-| `ribbon_thickness` | 缎带粗细基准 |
-| `stroke_scale` | 粗细缩放（实际线宽 ≈ thickness × scale） |
-| `triangle_particles` | 是否开启三角粒子 |
-| `not_when_cursor_hidden` | 系统隐藏光标时不新增轨迹 |
-| `blacklisted_processes` | 前台进程名黑名单（不区分大小写） |
-| `trail_lifetime_ms` | 轨迹残留时长（毫秒） |
-| `fps_limit` | 帧率上限 |
-| `toggle_hotkey` / `quit_hotkey` | 开关 / 退出热键（F1~F12） |
-
-修改配置后需**重启程序**生效。
+| 项 | 含义 |
+|----|------|
+| 透明度 | 0%～100% |
+| 粗细基准 | 丝带基础宽度 |
+| 缩放 | 1～10，实际观感粗细 ≈ 粗细基准 × 缩放 |
+| 残留 | 轨迹保留时长（毫秒） |
+| 三角形粒子 | 移动时是否喷小三角 |
+| 光标隐藏时禁用 | 系统隐藏光标时不新增轨迹 |
+| 黑名单 | 进程名列表（`;` 分隔），如 `javaw.exe` |
+| 开机自启 | 登录 Windows 后自动启动 |
 
 ---
 
 ## 本地编译
 
-需要：Windows、CMake、Visual Studio 2022（含「使用 C++ 的桌面开发」）。
+需要：Windows 10/11、CMake 3.20+、Visual Studio 2022（「使用 C++ 的桌面开发」）。
 
 ```bat
 cmake -S . -B build -G "Visual Studio 17 2022" -A x64
 cmake --build build --config Release
 ```
 
-产物路径：`build\Release\MouseTrailV2.exe`  
-构建后会自动复制 `config.json` 到同目录。
+产物：`build\Release\MouseTrailV2.exe`（单个可执行文件）
 
 ---
 
@@ -88,13 +88,15 @@ cmake --build build --config Release
 ```
 MouseTrailV2-GL/
   CMakeLists.txt
-  config.json
+  LICENSE
   README.md
+  CHANGELOG.md
   .github/workflows/build.yml
   src/
-    main.cpp           # 入口、窗口、主循环
-    trail.cpp/.hpp     # 轨迹采样与 OpenGL 绘制
-    platform_win.cpp   # 光标、进程黑名单、置顶穿透
+    main.cpp           # 入口、叠加层主循环
+    trail.cpp/.hpp     # 轨迹采样与绘制
+    platform_win.cpp   # 光标 / 前台进程 / 置顶穿透
+    tray_ui.cpp/.hpp   # 托盘与设置界面
     config.cpp/.hpp    # 配置读写
 ```
 
@@ -102,21 +104,21 @@ MouseTrailV2-GL/
 
 ## 技术说明
 
-- 使用 GLFW 透明帧缓冲 + 鼠标穿透 + 置顶悬浮窗
-- OpenGL 2.1 画线（GPU 渲染）
-- 光标位置：`GetCursorInfo` / `GetCursorPos`
-- 黑名单：读取前台窗口进程名进行匹配
+- GLFW 透明帧缓冲 + 鼠标穿透 + 置顶
+- OpenGL 2.1 绘制（GPU）
+- 托盘图标驻留，设置窗为独立小窗口
+- 黑名单匹配前台窗口所属进程名
 
 ---
 
 ## 许可证
 
-本项目使用 [MIT License](LICENSE)。
+[MIT License](LICENSE)
 
 ## 参与贡献
 
-请阅读 [贡献指南](CONTRIBUTING.md)。
+见 [CONTRIBUTING.md](CONTRIBUTING.md)
 
-安全问题请参见 [安全策略](SECURITY.md)。
+安全问题见 [SECURITY.md](SECURITY.md)
 
-更新记录见 [CHANGELOG](CHANGELOG.md)。
+更新记录见 [CHANGELOG.md](CHANGELOG.md)
