@@ -32,11 +32,13 @@ void hsv_to_rgb(float h, float s, float v, float& r, float& g, float& b) {
 }
 
 void pastel_rainbow(float hue, float& r, float& g, float& b) {
-    hsv_to_rgb(hue, 0.38f, 0.98f, r, g, b);
+    hsv_to_rgb(hue, 0.42f, 0.97f, r, g, b);
 }
 
 struct Sample {
-    float x, y, p;
+    float x = 0, y = 0;
+    float arc = 0;   // 0 tail .. 1 head along path
+    float remain = 1; // 1 fresh .. 0 fully aged out (per-point lifetime)
 };
 
 void catmull(const TrailPoint& p0, const TrailPoint& p1, const TrailPoint& p2, const TrailPoint& p3,
@@ -51,48 +53,6 @@ void catmull(const TrailPoint& p0, const TrailPoint& p1, const TrailPoint& p2, c
                 (-p0.y + 3.0f * p1.y - 3.0f * p2.y + p3.y) * u3);
 }
 
-std::vector<Sample> resample(const std::vector<TrailPoint>& pts, float spacing) {
-    std::vector<Sample> out;
-    if (pts.size() < 2) {
-        for (const auto& p : pts) out.push_back({p.x, p.y, 1.0f});
-        return out;
-    }
-
-    std::vector<std::pair<float, float>> dense;
-    const int n = static_cast<int>(pts.size());
-    for (int i = 0; i < n - 1; ++i) {
-        const TrailPoint& p0 = pts[std::max(0, i - 1)];
-        const TrailPoint& p1 = pts[i];
-        const TrailPoint& p2 = pts[i + 1];
-        const TrailPoint& p3 = pts[std::min(n - 1, i + 2)];
-        const float dist = std::hypot(p2.x - p1.x, p2.y - p1.y);
-        const int steps = std::max(1, static_cast<int>(dist / spacing));
-        for (int s = 0; s < steps; ++s) {
-            float x, y;
-            catmull(p0, p1, p2, p3, static_cast<float>(s) / static_cast<float>(steps), x, y);
-            dense.emplace_back(x, y);
-        }
-    }
-    dense.emplace_back(pts.back().x, pts.back().y);
-
-    if (dense.size() < 2) {
-        if (!dense.empty()) out.push_back({dense[0].first, dense[0].second, 1.0f});
-        return out;
-    }
-
-    std::vector<float> seg(dense.size(), 0.0f);
-    for (size_t i = 1; i < dense.size(); ++i) {
-        seg[i] = seg[i - 1] + std::hypot(dense[i].first - dense[i - 1].first,
-                                         dense[i].second - dense[i - 1].second);
-    }
-    const float total = seg.back() > 0.0f ? seg.back() : 1.0f;
-    out.reserve(dense.size());
-    for (size_t i = 0; i < dense.size(); ++i) {
-        out.push_back({dense[i].first, dense[i].second, seg[i] / total});
-    }
-    return out;
-}
-
 float smooth01(float t) {
     t = clampf(t, 0.0f, 1.0f);
     return t * t * (3.0f - 2.0f * t);
@@ -103,57 +63,139 @@ inline void color_premul(float r, float g, float b, float a) {
     glColor4f(r * a, g * a, b * a, a);
 }
 
-void draw_stroke_strip(const std::vector<Sample>& samples,
-                       float origin_x, float origin_y, float screen_h,
-                       float half_w, float base_a,
-                       float hue_head, float hue_span,
-                       float alpha_mul) {
-    if (samples.size() < 2 || half_w <= 0.01f) return;
+// Build long continuous samples with arc param + per-point remaining life.
+std::vector<Sample> build_samples(const std::vector<TrailPoint>& pts, double now, double life, float spacing) {
+    std::vector<Sample> out;
+    if (pts.size() < 2) return out;
+
+    struct Dense {
+        float x, y;
+        double t;
+    };
+    std::vector<Dense> dense;
+    const int n = static_cast<int>(pts.size());
+    for (int i = 0; i < n - 1; ++i) {
+        const TrailPoint& p0 = pts[std::max(0, i - 1)];
+        const TrailPoint& p1 = pts[i];
+        const TrailPoint& p2 = pts[i + 1];
+        const TrailPoint& p3 = pts[std::min(n - 1, i + 2)];
+        const float dist = std::hypot(p2.x - p1.x, p2.y - p1.y);
+        const int steps = std::max(1, static_cast<int>(dist / spacing));
+        for (int s = 0; s < steps; ++s) {
+            const float u = static_cast<float>(s) / static_cast<float>(steps);
+            float x, y;
+            catmull(p0, p1, p2, p3, u, x, y);
+            const double t = p1.t + (p2.t - p1.t) * static_cast<double>(u);
+            dense.push_back({x, y, t});
+        }
+    }
+    dense.push_back({pts.back().x, pts.back().y, pts.back().t});
+    if (dense.size() < 2) return out;
+
+    std::vector<float> seg(dense.size(), 0.0f);
+    for (size_t i = 1; i < dense.size(); ++i) {
+        seg[i] = seg[i - 1] + std::hypot(dense[i].x - dense[i - 1].x, dense[i].y - dense[i - 1].y);
+    }
+    const float total = seg.back() > 0.0f ? seg.back() : 1.0f;
+
+    out.reserve(dense.size());
+    for (size_t i = 0; i < dense.size(); ++i) {
+        Sample s;
+        s.x = dense[i].x;
+        s.y = dense[i].y;
+        s.arc = seg[i] / total; // 0 = oldest end, 1 = cursor end
+        const float age = static_cast<float>((now - dense[i].t) / life);
+        // remain: 1 at birth, 0 at expire. Ease so mid-life stays thick longer.
+        s.remain = smooth01(1.0f - clampf(age, 0.0f, 1.0f));
+        out.push_back(s);
+    }
+    return out;
+}
+
+// Soft filled ribbon: center solid, edges alpha=0 (no separate "border" pass).
+// This is a long continuous bar that thins by WIDTH, not by chopping length.
+void draw_soft_bar(const std::vector<Sample>& samples,
+                   float origin_x, float origin_y, float screen_h,
+                   float base_half_w, float base_a,
+                   float hue_head, float hue_span) {
+    if (samples.size() < 2) return;
 
     auto to_gl = [&](float x, float y, float& gx, float& gy) {
         gx = x - origin_x;
         gy = screen_h - (y - origin_y);
     };
 
-    glBegin(GL_TRIANGLE_STRIP);
-    for (size_t i = 0; i < samples.size(); ++i) {
-        float dx, dy;
-        if (i + 1 < samples.size()) {
-            dx = samples[i + 1].x - samples[i].x;
-            dy = samples[i + 1].y - samples[i].y;
-        } else {
-            dx = samples[i].x - samples[i - 1].x;
-            dy = samples[i].y - samples[i - 1].y;
-        }
+    // Each segment: two triangles forming a quad with soft left/right edges.
+    for (size_t i = 0; i + 1 < samples.size(); ++i) {
+        const Sample& a = samples[i];
+        const Sample& b = samples[i + 1];
+
+        float dx = b.x - a.x;
+        float dy = b.y - a.y;
         float len = std::hypot(dx, dy);
-        if (len < 1e-4f) {
-            dx = 1.0f;
-            dy = 0.0f;
-            len = 1.0f;
-        }
+        if (len < 1e-4f) continue;
         const float nx = -dy / len;
         const float ny = dx / len;
 
-        const float p = clampf(samples[i].p, 0.0f, 1.0f);
-        const float width_env = smooth01(std::pow(p, 0.50f));
-        const float alpha_env = smooth01(std::pow(p, 0.40f));
+        // Shape: long bar tapered by arc (head thicker) AND by remain (ages thin the bar).
+        // Key: remain thins the stroke in place; we do not rely on deleting tail points for the look.
+        auto width_at = [&](const Sample& s) {
+            // Geometric taper along the long bar: tail thin, head thicker
+            const float geo = 0.20f + 0.80f * smooth01(s.arc);
+            // Age thinning: whole segment shrinks in width as it ages (鍙樼粏娑堝け)
+            const float age_w = smooth01(std::pow(std::max(s.remain, 0.0f), 0.85f));
+            return base_half_w * geo * age_w;
+        };
+        auto alpha_at = [&](const Sample& s) {
+            // Alpha stays relatively stable; primary disappear is width->0
+            const float age_a = 0.55f + 0.45f * smooth01(s.remain);
+            return base_a * age_a;
+        };
 
-        const float hue = hue_head - (1.0f - p) * hue_span;
-        float r, g, b;
-        pastel_rainbow(hue, r, g, b);
+        const float wa = width_at(a);
+        const float wb = width_at(b);
+        if (wa < 0.05f && wb < 0.05f) continue;
 
-        float w = half_w * (0.80f + 0.30f * p) * width_env;
-        if (w > 0.0f && w < 0.30f) w = 0.30f * width_env;
+        float ax, ay, bx, by;
+        to_gl(a.x, a.y, ax, ay);
+        to_gl(b.x, b.y, bx, by);
+        const float gnx = nx;
+        const float gny = -ny;
 
-        const float alpha = base_a * alpha_mul * (0.60f + 0.40f * alpha_env);
+        float ra, ga, ba, rb, gb, bb;
+        pastel_rainbow(hue_head - (1.0f - a.arc) * hue_span, ra, ga, ba);
+        pastel_rainbow(hue_head - (1.0f - b.arc) * hue_span, rb, gb, bb);
+        const float aa = alpha_at(a);
+        const float ab = alpha_at(b);
 
-        float cx, cy;
-        to_gl(samples[i].x, samples[i].y, cx, cy);
-        color_premul(r, g, b, alpha);
-        glVertex2f(cx + nx * w, cy + (-ny) * w);
-        glVertex2f(cx - nx * w, cy - (-ny) * w);
+        // 4 corners: outer edge alpha 0, creates soft edge without border layer
+        // aL aR
+        // bL bR
+        const float aLx = ax + gnx * wa, aLy = ay + gny * wa;
+        const float aRx = ax - gnx * wa, aRy = ay - gny * wa;
+        const float bLx = bx + gnx * wb, bLy = by + gny * wb;
+        const float bRx = bx - gnx * wb, bRy = by - gny * wb;
+
+        // Center line points (full alpha)
+        const float aCx = ax, aCy = ay;
+        const float bCx = bx, bCy = by;
+
+        // Left half soft: edge(0) - center(full)
+        glBegin(GL_TRIANGLE_STRIP);
+        color_premul(ra, ga, ba, 0.0f); glVertex2f(aLx, aLy);
+        color_premul(ra, ga, ba, aa);   glVertex2f(aCx, aCy);
+        color_premul(rb, gb, bb, 0.0f); glVertex2f(bLx, bLy);
+        color_premul(rb, gb, bb, ab);   glVertex2f(bCx, bCy);
+        glEnd();
+
+        // Right half soft: center(full) - edge(0)
+        glBegin(GL_TRIANGLE_STRIP);
+        color_premul(ra, ga, ba, aa);   glVertex2f(aCx, aCy);
+        color_premul(ra, ga, ba, 0.0f); glVertex2f(aRx, aRy);
+        color_premul(rb, gb, bb, ab);   glVertex2f(bCx, bCy);
+        color_premul(rb, gb, bb, 0.0f); glVertex2f(bRx, bRy);
+        glEnd();
     }
-    glEnd();
 }
 
 } // namespace
@@ -177,8 +219,7 @@ void TrailSystem::push(float x, float y, double now, float speed, const AppConfi
             const float ang = static_cast<float>(std::rand()) / static_cast<float>(RAND_MAX) * 6.2831853f;
             const float sp = 40.0f + static_cast<float>(std::rand()) / static_cast<float>(RAND_MAX) * 80.0f + speed * 0.03f;
             Particle p;
-            p.x = x;
-            p.y = y;
+            p.x = x; p.y = y;
             p.vx = std::cos(ang) * sp;
             p.vy = std::sin(ang) * sp - 30.0f;
             p.birth = now;
@@ -188,9 +229,7 @@ void TrailSystem::push(float x, float y, double now, float speed, const AppConfi
             p.rot = static_cast<float>(std::rand()) / static_cast<float>(RAND_MAX) * 6.2831853f;
             p.spin = (static_cast<float>(std::rand()) / static_cast<float>(RAND_MAX) - 0.5f) * 16.0f;
             particles.push_back(p);
-            if (particles.size() > 40) {
-                particles.erase(particles.begin(), particles.end() - 40);
-            }
+            if (particles.size() > 40) particles.erase(particles.begin(), particles.end() - 40);
         }
     } else {
         points.back() = {x, y, now, speed};
@@ -202,7 +241,9 @@ void TrailSystem::push(float x, float y, double now, float speed, const AppConfi
 }
 
 void TrailSystem::update(double now, float dt, const AppConfig& cfg) {
-    const double life = cfg.trail_lifetime_ms / 1000.0 * 1.40;
+    // Keep points until fully thinned (remain~0). Slightly longer than lifetime
+    // so width can reach zero before the bar is chopped short.
+    const double life = cfg.trail_lifetime_ms / 1000.0 * 1.25;
     points.erase(std::remove_if(points.begin(), points.end(),
                                 [&](const TrailPoint& p) { return now - p.t > life; }),
                  points.end());
@@ -228,29 +269,14 @@ void TrailSystem::draw(float origin_x, float origin_y, float screen_h, double no
     glDisable(GL_POINT_SMOOTH);
 
     if (points.size() >= 2) {
-        auto samples = resample(points, 1.6f);
+        const double life = std::max(0.08, cfg.trail_lifetime_ms / 1000.0);
+        const auto samples = build_samples(points, now, life, 1.5f);
         if (samples.size() >= 2) {
-            const double life = std::max(0.08, cfg.trail_lifetime_ms / 1000.0);
-            const double head_t = points.back().t;
-            const double tail_t = points.front().t;
-
-            for (auto& s : samples) {
-                const double age_t = tail_t + (head_t - tail_t) * static_cast<double>(s.p);
-                const float age = static_cast<float>((now - age_t) / life);
-                const float remain = 1.0f - clampf(age, 0.0f, 1.0f);
-                const float thin = smooth01(std::pow(std::max(remain, 0.0f), 0.50f));
-                s.p = clampf(0.20f + 0.80f * s.p, 0.0f, 1.0f) * thin;
-            }
-
             const float base_a = clampf(cfg.opacity, 0.05f, 1.0f);
-            const float half = std::max(0.65f, cfg.ribbon_thickness * cfg.stroke_scale * 0.17f);
-
-            draw_stroke_strip(samples, origin_x, origin_y, screen_h, half * 2.0f, base_a,
-                              cfg.rainbow_hue_head, cfg.rainbow_hue_span, 0.20f);
-            draw_stroke_strip(samples, origin_x, origin_y, screen_h, half * 1.15f, base_a,
-                              cfg.rainbow_hue_head, cfg.rainbow_hue_span, 0.50f);
-            draw_stroke_strip(samples, origin_x, origin_y, screen_h, half, base_a,
-                              cfg.rainbow_hue_head, cfg.rainbow_hue_span, 0.92f);
+            // half-width; stroke_scale 3.0 from user config means thicker bar
+            const float half = std::max(0.8f, cfg.ribbon_thickness * cfg.stroke_scale * 0.22f);
+            draw_soft_bar(samples, origin_x, origin_y, screen_h, half, base_a,
+                          cfg.rainbow_hue_head, cfg.rainbow_hue_span);
         }
     }
 
