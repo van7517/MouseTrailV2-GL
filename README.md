@@ -1,5 +1,8 @@
 # MouseTrailV2
 
+![MouseTrailV2](assets/app.png)
+
+
 Windows 鼠标轨迹小工具：彩虹幽灵缎带效果。
 
 **当前版本：v0.1.2**
