@@ -1,10 +1,23 @@
-build/
-out/
-dist/
+# IDE / OS
 .vs/
-CMakeUserPresets.json
+.idea/
 *.user
 *.suo
+.DS_Store
+Thumbs.db
+
+# Build
+build/
+out/
+cmake-build-*/
+CMakeUserPresets.json
+compile_commands.json
+.cache/
+
+# Local packages / artifacts
+dist/
+dist_*/
+*.zip
 *.exe
 *.pdb
 *.obj
@@ -12,11 +25,8 @@ CMakeUserPresets.json
 *.a
 *.lib
 *.dll
-.cache/
-compile_commands.json
+third_party/
 
-Typora_Hook_Log.txt
+# Logs
 *.log
-build/
-*.zip
-MouseTrailV2-windows-x64.zip
+Typora_Hook_Log.txt
