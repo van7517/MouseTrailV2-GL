@@ -8,7 +8,7 @@ struct AppConfig {
     bool triangle_particles = false;
     bool not_when_cursor_hidden = true;
     std::vector<std::string> blacklisted_processes{"javaw.exe"};
-    int trail_lifetime_ms = 500;
+    int trail_lifetime_ms = 800;
     float sample_min_distance = 1.6f;
     int max_points = 120;
     int fps_limit = 120;

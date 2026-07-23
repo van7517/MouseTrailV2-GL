@@ -4,7 +4,7 @@
   "triangle_particles": false,
   "not_when_cursor_hidden": true,
   "blacklisted_processes": ["javaw.exe"],
-  "trail_lifetime_ms": 500,
+  "trail_lifetime_ms": 800,
   "sample_min_distance": 1.6,
   "max_points": 120,
   "fps_limit": 120,
