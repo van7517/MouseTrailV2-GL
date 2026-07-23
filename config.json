@@ -1,0 +1,16 @@
+{
+  "opacity": 0.55,
+  "ribbon_thickness": 10.0,
+  "triangle_particles": false,
+  "not_when_cursor_hidden": true,
+  "blacklisted_processes": ["javaw.exe"],
+  "trail_lifetime_ms": 480,
+  "sample_min_distance": 2.0,
+  "max_points": 64,
+  "fps_limit": 120,
+  "toggle_hotkey": "F8",
+  "quit_hotkey": "F9",
+  "rainbow_hue_head": 0.95,
+  "rainbow_hue_span": 0.95,
+  "stroke_scale": 0.55
+}
