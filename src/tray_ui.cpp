@@ -279,12 +279,12 @@ LRESULT CALLBACK CfgWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 }
 
 HWND make_label(HWND parent, int id, const wchar_t* text, int x, int y, int w, int h) {
-    HWND h = CreateWindowW(L"STATIC", text, WS_CHILD|WS_VISIBLE, x,y,w,h, parent, (HMENU)(intptr_t)id, g_inst, nullptr);
-    if (g_font) SendMessageW(h, WM_SETFONT, (WPARAM)g_font, TRUE);
-    return h;
+    HWND ctl = CreateWindowW(L"STATIC", text, WS_CHILD|WS_VISIBLE, x,y,w,h, parent, (HMENU)(INT_PTR)id, g_inst, nullptr);
+    if (g_font) SendMessageW(ctl, WM_SETFONT, (WPARAM)g_font, TRUE);
+    return ctl;
 }
 HWND make_track(HWND parent, int id, int x, int y, int w, int minv, int maxv, int pos) {
-    HWND t = CreateWindowW(TRACKBAR_CLASSW, L"", WS_CHILD|WS_VISIBLE|TBS_AUTOTICKS|TBS_TOOLTIPS, x,y,w,36, parent, (HMENU)(intptr_t)id, g_inst, nullptr);
+    HWND t = CreateWindowW(TRACKBAR_CLASSW, L"", WS_CHILD|WS_VISIBLE|TBS_AUTOTICKS|TBS_TOOLTIPS, x,y,w,36, parent, (HMENU)(INT_PTR)id, g_inst, nullptr);
     SendMessageW(t, TBM_SETRANGE, TRUE, MAKELPARAM(minv, maxv));
     SendMessageW(t, TBM_SETPOS, TRUE, pos);
     if (g_font) SendMessageW(t, WM_SETFONT, (WPARAM)g_font, TRUE);
@@ -292,7 +292,7 @@ HWND make_track(HWND parent, int id, int x, int y, int w, int minv, int maxv, in
 }
 HWND make_btn(HWND parent, int id, const wchar_t* text, int x, int y, int w, int h, bool primary=false) {
     DWORD style = WS_CHILD|WS_VISIBLE|(primary?BS_DEFPUSHBUTTON:BS_PUSHBUTTON);
-    HWND b = CreateWindowW(L"BUTTON", text, style, x,y,w,h, parent, (HMENU)(intptr_t)id, g_inst, nullptr);
+    HWND b = CreateWindowW(L"BUTTON", text, style, x,y,w,h, parent, (HMENU)(INT_PTR)id, g_inst, nullptr);
     if (g_font) SendMessageW(b, WM_SETFONT, (WPARAM)g_font, TRUE);
     return b;
 }
