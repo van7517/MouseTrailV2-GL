@@ -1,6 +1,7 @@
 #include "config.hpp"
 #include "platform_win.hpp"
 #include "trail.hpp"
+#include "tray_ui.hpp"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -9,6 +10,7 @@
 #define NOMINMAX
 #endif
 #include <Windows.h>
+#include <ShlObj.h>
 
 #include <GLFW/glfw3.h>
 #define GLFW_EXPOSE_NATIVE_WIN32
@@ -16,30 +18,39 @@
 
 #include <chrono>
 #include <cmath>
-#include <cstdio>
 #include <filesystem>
 #include <string>
 
 namespace fs = std::filesystem;
 
-static std::string exe_dir() {
-    char buf[MAX_PATH];
-    const DWORD n = GetModuleFileNameA(nullptr, buf, MAX_PATH);
-    if (n == 0 || n >= MAX_PATH) return ".";
-    return fs::path(buf).parent_path().string();
+static std::string config_path_appdata() {
+    char appdata[MAX_PATH]{};
+    if (FAILED(SHGetFolderPathA(nullptr, CSIDL_APPDATA, nullptr, SHGFP_TYPE_CURRENT, appdata))) {
+        return "config.json";
+    }
+    fs::path dir = fs::path(appdata) / "MouseTrailV2";
+    std::error_code ec;
+    fs::create_directories(dir, ec);
+    return (dir / "config.json").string();
 }
 
-int main() {
+static void hide_from_taskbar(HWND hwnd) {
+    if (!hwnd) return;
+    LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+    ex |= WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TRANSPARENT | WS_EX_LAYERED | WS_EX_TOPMOST;
+    ex &= ~WS_EX_APPWINDOW;
+    SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
+    // Re-apply topmost without activating
+    SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+}
+
+static int run_app(HINSTANCE inst) {
     enable_dpi_awareness();
 
-    const std::string base = exe_dir();
-    const std::string cfg_path = (fs::path(base) / "config.json").string();
+    const std::string cfg_path = config_path_appdata();
     AppConfig cfg = AppConfig::load(cfg_path);
 
-    if (!glfwInit()) {
-        std::fprintf(stderr, "glfwInit failed\n");
-        return 1;
-    }
+    if (!glfwInit()) return 1;
 
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 2);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
@@ -49,6 +60,7 @@ int main() {
     glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
     glfwWindowHint(GLFW_FOCUSED, GLFW_FALSE);
     glfwWindowHint(GLFW_FOCUS_ON_SHOW, GLFW_FALSE);
+    glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
 #if defined(GLFW_MOUSE_PASSTHROUGH)
     glfwWindowHint(GLFW_MOUSE_PASSTHROUGH, GLFW_TRUE);
 #endif
@@ -56,20 +68,22 @@ int main() {
     VirtualScreen vs = get_virtual_screen();
     GLFWwindow* window = glfwCreateWindow(vs.w, vs.h, "MouseTrailV2", nullptr, nullptr);
     if (!window) {
-        std::fprintf(stderr, "glfwCreateWindow failed\n");
         glfwTerminate();
         return 1;
     }
 
     glfwSetWindowPos(window, vs.x, vs.y);
+    glfwShowWindow(window);
     glfwMakeContextCurrent(window);
     glfwSwapInterval(0);
 
-    void* hwnd = glfwGetWin32Window(window);
+    HWND hwnd = glfwGetWin32Window(window);
     apply_overlay_styles(hwnd);
+    hide_from_taskbar(hwnd);
 
     TrailSystem trail;
     bool enabled = true;
+    bool running = true;
     bool prev_toggle = false;
     bool prev_quit = false;
     int frame = 0;
@@ -77,17 +91,34 @@ int main() {
     CursorState last{};
     last.ok = false;
 
-    const int toggle_vk = hotkey_to_vk(cfg.toggle_hotkey);
-    const int quit_vk = hotkey_to_vk(cfg.quit_hotkey);
+    AppControl ctrl;
+    ctrl.enabled = &enabled;
+    ctrl.running = &running;
+    ctrl.cfg = &cfg;
+    ctrl.cfg_path = cfg_path;
+    ctrl.overlay_hwnd = hwnd;
+    ctrl.on_config_saved = nullptr;
 
-    std::printf("MouseTrailV2 (OpenGL)\n");
-    std::printf("  config: %s\n", cfg_path.c_str());
-    std::printf("  %s=toggle  %s=quit\n", cfg.toggle_hotkey.c_str(), cfg.quit_hotkey.c_str());
-    std::printf("  opacity=%.2f thickness=%.1f fps=%d\n", cfg.opacity, cfg.ribbon_thickness, cfg.fps_limit);
+    tray_init(inst, &ctrl);
+
+    int toggle_vk = hotkey_to_vk(cfg.toggle_hotkey);
+    int quit_vk = hotkey_to_vk(cfg.quit_hotkey);
 
     auto t_prev = std::chrono::steady_clock::now();
 
-    while (!glfwWindowShouldClose(window)) {
+    while (running && !glfwWindowShouldClose(window)) {
+        // Pump Win32 messages for tray/settings
+        MSG msg;
+        while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
+            if (msg.message == WM_QUIT) {
+                running = false;
+                break;
+            }
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+        if (!running) break;
+
         const auto t_now = std::chrono::steady_clock::now();
         float dt = std::chrono::duration<float>(t_now - t_prev).count();
         t_prev = t_now;
@@ -98,16 +129,19 @@ int main() {
         glfwPollEvents();
         ++frame;
 
-        if (frame % 12 == 0) force_topmost(hwnd);
+        if (frame % 12 == 0) {
+            force_topmost(hwnd);
+            hide_from_taskbar(hwnd);
+        }
+
+        // reload hotkeys if config changed via UI
+        toggle_vk = hotkey_to_vk(cfg.toggle_hotkey);
+        quit_vk = hotkey_to_vk(cfg.quit_hotkey);
 
         const bool td = is_key_down(toggle_vk);
         const bool qd = is_key_down(quit_vk);
-        if (td && !prev_toggle) {
-            enabled = !enabled;
-            if (!enabled) trail.clear();
-            std::printf("%s\n", enabled ? "[ON] Enabled" : "[OFF] Disabled");
-        }
-        if (qd && !prev_quit) glfwSetWindowShouldClose(window, 1);
+        if (td && !prev_toggle) enabled = !enabled;
+        if (qd && !prev_quit) running = false;
         prev_toggle = td;
         prev_quit = qd;
 
@@ -139,6 +173,7 @@ int main() {
             last = cur;
         } else {
             last = cur;
+            if (!enabled) trail.clear();
         }
 
         trail.update(now, dt, cfg);
@@ -179,7 +214,17 @@ int main() {
         }
     }
 
+    tray_shutdown();
     glfwDestroyWindow(window);
     glfwTerminate();
     return 0;
 }
+
+int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
+    return run_app(inst);
+}
+
+// Keep console-less entry for MSVC
+#ifdef _MSC_VER
+#pragma comment(linker, "/SUBSYSTEM:WINDOWS")
+#endif
