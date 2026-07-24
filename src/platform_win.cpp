@@ -152,9 +152,8 @@ void apply_overlay_styles(void* hwnd_void) {
     HWND hwnd = static_cast<HWND>(hwnd_void);
     if (!hwnd) return;
     LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-    // WS_EX_LAYERED required for UpdateLayeredWindow. Do NOT SetLayeredWindowAttributes —
-    // that switches the window into color-key/constant-alpha mode and breaks per-pixel alpha.
     ex |= WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TOPMOST;
+    ex &= ~WS_EX_APPWINDOW;
     SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
     SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
                  SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED | SWP_SHOWWINDOW);
@@ -168,16 +167,6 @@ void force_topmost(void* hwnd_void) {
 }
 
 void enable_window_transparency(void* hwnd_void) {
-    HWND hwnd = static_cast<HWND>(hwnd_void);
-    if (!hwnd) return;
-
-    // Toggle WS_EX_LAYERED off/on to clear any SetLayeredWindowAttributes state
-    // (color-key / constant-alpha mode). UpdateLayeredWindow needs a clean layered window.
-    LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-    SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex & ~WS_EX_LAYERED);
-    ex |= WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TOPMOST;
-    ex &= ~WS_EX_APPWINDOW;
-    SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
-    SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
-                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+    // Pixels come from UpdateLayeredWindow in main.cpp. Keep layered/click-through styles only.
+    apply_overlay_styles(hwnd_void);
 }
