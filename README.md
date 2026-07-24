@@ -124,6 +124,14 @@ MouseTrailV2-GL/
 
 ---
 
+## 社区讨论
+
+- [LINUX DO](https://linux.do)
+
+欢迎在社区交流使用体验、问题反馈与建议。
+
+---
+
 ## 许可证
 
 [MIT License](LICENSE)
