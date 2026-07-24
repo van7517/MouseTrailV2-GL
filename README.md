@@ -1,7 +1,6 @@
 # MouseTrailV2
 
-![MouseTrailV2](assets/app.png)
-
+![MouseTrailV2 demo](assets/demo.gif)
 
 Windows 鼠标轨迹小工具：彩虹幽灵缎带效果。
 
@@ -11,7 +10,10 @@ Windows 鼠标轨迹小工具：彩虹幽灵缎带效果。
 - 托盘后台运行（不占任务栏、无控制台）
 - 全屏透明叠加、点击穿透、始终置顶
 - 中文设置界面
+- 彩虹色相随时间轮转
 - 发布包仅一个 `MouseTrailV2.exe`
+
+图标：![icon](assets/app.png)
 
 ---
 
@@ -46,6 +48,7 @@ Windows 鼠标轨迹小工具：彩虹幽灵缎带效果。
 | 项目 | 说明 |
 |------|------|
 | 幽灵缎带 | 连续彩虹轨迹，按宽度逐渐变细消失 |
+| 彩虹轮转 | 光标头部色相随时间变化（`rainbow_cycle_speed`） |
 | 可视化设置 | 透明度、粗细、缩放、残留时间等 |
 | 缩放 Scale | 范围 **1～10** |
 | 残留时间 | 默认 **800 ms**（可调） |
@@ -68,6 +71,12 @@ Windows 鼠标轨迹小工具：彩虹幽灵缎带效果。
 | 光标隐藏时禁用 | 系统隐藏光标时不新增轨迹 |
 | 黑名单 | 进程名列表（`;` 分隔），如 `javaw.exe` |
 | 开机自启 | 登录 Windows 后自动启动 |
+
+高级项可在 `config.json` 中调整，例如：
+
+```json
+"rainbow_cycle_speed": 0.35
+```
 
 ---
 
@@ -93,6 +102,9 @@ MouseTrailV2-GL/
   README.md
   CHANGELOG.md
   .github/workflows/build.yml
+  assets/
+    demo.gif           # README 演示动图
+    app.png / app.ico
   src/
     main.cpp           # 入口、叠加层主循环
     trail.cpp/.hpp     # 轨迹采样与绘制
@@ -105,8 +117,8 @@ MouseTrailV2-GL/
 
 ## 技术说明
 
-- GLFW 透明帧缓冲 + 鼠标穿透 + 置顶
-- OpenGL 2.1 绘制（GPU）
+- 隐藏 OpenGL 上下文渲染 + 每屏 `UpdateLayeredWindow` 逐像素 alpha
+- 点击穿透、始终置顶、多显示器 / 混 DPI
 - 托盘图标驻留，设置窗为独立小窗口
 - 黑名单匹配前台窗口所属进程名
 

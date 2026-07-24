@@ -33,3 +33,5 @@ Typora_Hook_Log.txt
 
 release-staging/
 
+# Local tooling (ffmpeg etc.)
+.tools/
