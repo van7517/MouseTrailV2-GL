@@ -58,7 +58,7 @@ float smooth01(float t) {
     return t * t * (3.0f - 2.0f * t);
 }
 
-inline void color_premul(float r, float g, float b, float a) {
+inline void color_rgba(float r, float g, float b, float a) {
     a = clampf(a, 0.0f, 1.0f);
     glColor4f(r * a, g * a, b * a, a);
 }
@@ -182,18 +182,18 @@ void draw_soft_bar(const std::vector<Sample>& samples,
 
         // Left half soft: edge(0) - center(full)
         glBegin(GL_TRIANGLE_STRIP);
-        color_premul(ra, ga, ba, 0.0f); glVertex2f(aLx, aLy);
-        color_premul(ra, ga, ba, aa);   glVertex2f(aCx, aCy);
-        color_premul(rb, gb, bb, 0.0f); glVertex2f(bLx, bLy);
-        color_premul(rb, gb, bb, ab);   glVertex2f(bCx, bCy);
+        color_rgba(ra, ga, ba, 0.0f); glVertex2f(aLx, aLy);
+        color_rgba(ra, ga, ba, aa);   glVertex2f(aCx, aCy);
+        color_rgba(rb, gb, bb, 0.0f); glVertex2f(bLx, bLy);
+        color_rgba(rb, gb, bb, ab);   glVertex2f(bCx, bCy);
         glEnd();
 
         // Right half soft: center(full) - edge(0)
         glBegin(GL_TRIANGLE_STRIP);
-        color_premul(ra, ga, ba, aa);   glVertex2f(aCx, aCy);
-        color_premul(ra, ga, ba, 0.0f); glVertex2f(aRx, aRy);
-        color_premul(rb, gb, bb, ab);   glVertex2f(bCx, bCy);
-        color_premul(rb, gb, bb, 0.0f); glVertex2f(bRx, bRy);
+        color_rgba(ra, ga, ba, aa);   glVertex2f(aCx, aCy);
+        color_rgba(ra, ga, ba, 0.0f); glVertex2f(aRx, aRy);
+        color_rgba(rb, gb, bb, ab);   glVertex2f(bCx, bCy);
+        color_rgba(rb, gb, bb, 0.0f); glVertex2f(bRx, bRy);
         glEnd();
     }
 }
@@ -264,7 +264,7 @@ void TrailSystem::update(double now, float dt, const AppConfig& cfg) {
 
 void TrailSystem::draw(float origin_x, float origin_y, float screen_h, double now, const AppConfig& cfg) const {
     glEnable(GL_BLEND);
-    glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glDisable(GL_LINE_SMOOTH);
     glDisable(GL_POINT_SMOOTH);
 
@@ -291,7 +291,7 @@ void TrailSystem::draw(float origin_x, float origin_y, float screen_h, double no
             if (fade <= 0.0f) continue;
             float r, g, b;
             pastel_rainbow(p.hue, r, g, b);
-            color_premul(r, g, b, base_a * fade * 0.55f);
+            color_rgba(r, g, b, base_a * fade * 0.55f);
             const float s = p.size * fade;
             float cx, cy;
             to_gl(p.x, p.y, cx, cy);

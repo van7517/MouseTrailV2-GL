@@ -26,10 +26,37 @@ jobs:
       - name: Stage single exe
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Force dist | Out-Null
-          Copy-Item build/Release/MouseTrailV2.exe dist/MouseTrailV2.exe
-          # single-file package (no config.json / README)
-          Compress-Archive -Path dist/MouseTrailV2.exe -DestinationPath MouseTrailV2-windows-x64.zip -Force
+          $exe = "dist/MouseTrailV2.exe"
+          Copy-Item "build/Release/MouseTrailV2.exe" $exe -Force
+
+          # Stamp local-like mtime so zip/explorer don't show confusing UTC "2:xx" from runner clock alone.
+          $now = Get-Date
+          (Get-Item $exe).LastWriteTime = $now
+          (Get-Item $exe).CreationTime = $now
+
+          # Zip with .NET API so entry timestamp matches stamped mtime (Compress-Archive can be flaky).
+          Add-Type -AssemblyName System.IO.Compression
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zipPath = Join-Path (Get-Location) "MouseTrailV2-windows-x64.zip"
+          if (Test-Path $zipPath) { Remove-Item -Force $zipPath }
+          $zip = [System.IO.Compression.ZipFile]::Open($zipPath, 'Create')
+          try {
+            $entry = $zip.CreateEntry("MouseTrailV2.exe", [System.IO.Compression.CompressionLevel]::Optimal)
+            $entry.LastWriteTime = $now
+            $in = [System.IO.File]::OpenRead((Resolve-Path $exe))
+            try {
+              $out = $entry.Open()
+              try { $in.CopyTo($out) } finally { $out.Dispose() }
+            } finally { $in.Dispose() }
+          } finally { $zip.Dispose() }
+
+          Write-Host "EXE size=$((Get-Item $exe).Length) mtime=$((Get-Item $exe).LastWriteTime.ToString('o'))"
+          Write-Host "ZIP size=$((Get-Item $zipPath).Length) mtime=$((Get-Item $zipPath).LastWriteTime.ToString('o'))"
+          # identity stamp for users verifying the build
+          Get-FileHash $exe -Algorithm SHA256 | Format-List
+          Get-FileHash $zipPath -Algorithm SHA256 | Format-List
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

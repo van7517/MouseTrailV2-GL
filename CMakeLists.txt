@@ -27,7 +27,7 @@ add_executable(MouseTrailV2 WIN32
 )
 
 target_include_directories(MouseTrailV2 PRIVATE src ${CMAKE_SOURCE_DIR}/src)
-target_link_libraries(MouseTrailV2 PRIVATE glfw opengl32 user32 gdi32 shell32 ole32 comctl32 dwmapi)
+target_link_libraries(MouseTrailV2 PRIVATE glfw opengl32 user32 gdi32 shell32 ole32 comctl32)
 
 if(MSVC)
   set(CMAKE_RC_FLAGS "${CMAKE_RC_FLAGS} /I\"${CMAKE_SOURCE_DIR}/src\" /I\"${CMAKE_SOURCE_DIR}\"")

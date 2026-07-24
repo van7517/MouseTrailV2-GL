@@ -34,5 +34,5 @@ std::string get_foreground_process_name();
 bool process_is_blacklisted(const std::string& name, const std::vector<std::string>& list);
 void apply_overlay_styles(void* hwnd);
 void force_topmost(void* hwnd);
-// Enable per-pixel alpha composition for the overlay HWND (DWM).
+// Enable click-through color-key transparency for the overlay HWND.
 void enable_window_transparency(void* hwnd);

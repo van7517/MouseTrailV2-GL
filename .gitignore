@@ -30,3 +30,6 @@ third_party/
 # Logs
 *.log
 Typora_Hook_Log.txt
+
+release-staging/
+

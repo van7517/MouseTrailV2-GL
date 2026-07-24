@@ -59,7 +59,8 @@ static void apply_glfw_overlay_hints() {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
     glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);
     glfwWindowHint(GLFW_FLOATING, GLFW_TRUE);
-    glfwWindowHint(GLFW_TRANSPARENT_FRAMEBUFFER, GLFW_TRUE);
+    // Color-key transparency (WS_EX_LAYERED + LWA_COLORKEY) is used instead of FB alpha.
+    glfwWindowHint(GLFW_TRANSPARENT_FRAMEBUFFER, GLFW_FALSE);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
     glfwWindowHint(GLFW_FOCUSED, GLFW_FALSE);
     glfwWindowHint(GLFW_FOCUS_ON_SHOW, GLFW_FALSE);
@@ -146,7 +147,7 @@ static void render_overlay(OverlayWindow& o, const TrailSystem& trail, bool enab
     if (fbw <= 0 || fbh <= 0) return;
 
     glViewport(0, 0, fbw, fbh);
-    glClearColor(0.f, 0.f, 0.f, 0.f);
+    glClearColor(0.f, 0.f, 0.f, 1.f); // pure black = color-key transparent
     glClear(GL_COLOR_BUFFER_BIT);
 
     int win_w = 0, win_h = 0;

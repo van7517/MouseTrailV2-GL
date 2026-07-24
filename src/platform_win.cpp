@@ -7,11 +7,26 @@
 #define NOMINMAX
 #endif
 #include <Windows.h>
-#include <dwmapi.h>
 #include <algorithm>
 #include <cctype>
 
 void enable_dpi_awareness() {
+    // Prefer Per-Monitor V2 so monitor rects and GLFW sizes stay in the same space.
+    HMODULE user32 = LoadLibraryW(L"User32.dll");
+    if (user32) {
+        typedef BOOL(WINAPI* SetProcessDpiAwarenessContext_t)(HANDLE);
+        auto fn = reinterpret_cast<SetProcessDpiAwarenessContext_t>(
+            GetProcAddress(user32, "SetProcessDpiAwarenessContext"));
+        if (fn) {
+            // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = (HANDLE)-4
+            if (fn(reinterpret_cast<HANDLE>(static_cast<LONG_PTR>(-4)))) {
+                FreeLibrary(user32);
+                return;
+            }
+        }
+        FreeLibrary(user32);
+    }
+
     HMODULE shcore = LoadLibraryW(L"Shcore.dll");
     if (shcore) {
         typedef HRESULT(WINAPI* SetProcessDpiAwareness_t)(int);
@@ -59,11 +74,9 @@ std::vector<MonitorRect> get_monitors() {
     std::vector<MonitorRect> list;
     EnumDisplayMonitors(nullptr, nullptr, monitor_enum_proc, reinterpret_cast<LPARAM>(&list));
     if (list.empty()) {
-        // Fallback: single virtual desktop rect
         const VirtualScreen vs = get_virtual_screen();
         list.push_back({vs.x, vs.y, vs.w, vs.h});
     }
-    // Stable order so hot-plug comparison is deterministic
     std::sort(list.begin(), list.end(), [](const MonitorRect& a, const MonitorRect& b) {
         if (a.x != b.x) return a.x < b.x;
         if (a.y != b.y) return a.y < b.y;
@@ -142,7 +155,6 @@ void apply_overlay_styles(void* hwnd_void) {
     LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
     ex |= WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TOPMOST;
     SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
-    // Keep click-through; GLFW may set layered for transparency already.
     SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
                  SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
 }
@@ -158,16 +170,16 @@ void enable_window_transparency(void* hwnd_void) {
     HWND hwnd = static_cast<HWND>(hwnd_void);
     if (!hwnd) return;
 
-    // Extend glass frame into entire client area so framebuffer alpha is composited.
-    // Without this, multi-monitor / large overlays often paint as solid black.
-    MARGINS margins = {-1, -1, -1, -1};
-    DwmExtendFrameIntoClientArea(hwnd, &margins);
+    // Win10/11: OpenGL framebuffer alpha + DwmBlur is unreliable and often paints
+    // a solid black fullscreen overlay (worse with multi-monitor).
+    // Color-key pure black as transparent is stable for this click-through trail use-case.
+    LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+    ex |= WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TOPMOST;
+    SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
 
-    // Empty blur region = fully transparent backdrop (classic GLFW/DWM pattern).
-    DWM_BLURBEHIND bb{};
-    bb.dwFlags = DWM_BB_ENABLE | DWM_BB_BLURREGION;
-    bb.fEnable = TRUE;
-    bb.hRgnBlur = CreateRectRgn(0, 0, -1, -1);
-    DwmEnableBlurBehindWindow(hwnd, &bb);
-    if (bb.hRgnBlur) DeleteObject(bb.hRgnBlur);
+    // RGB(0,0,0) pixels become fully transparent. Trail body uses pastel colors (never pure black).
+    SetLayeredWindowAttributes(hwnd, RGB(0, 0, 0), 0, LWA_COLORKEY);
+
+    SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED | SWP_SHOWWINDOW);
 }
