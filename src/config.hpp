@@ -14,8 +14,12 @@ struct AppConfig {
     int fps_limit = 120;
     std::string toggle_hotkey = "F8";
     std::string quit_hotkey = "F9";
-    float rainbow_hue_head = 0.95f;
+    // Base hue (0..1). Head color = base + time * rainbow_cycle_speed (wraps).
+    float rainbow_hue_head = 0.0f;
+    // How much hue shifts from head -> tail along one ribbon.
     float rainbow_hue_span = 0.85f;
+    // Full rainbow cycles per second at the cursor head (0 = freeze).
+    float rainbow_cycle_speed = 0.35f;
     float stroke_scale = 3.0f;
 
     static AppConfig load(const std::string& path);

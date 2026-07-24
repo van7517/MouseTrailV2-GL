@@ -25,6 +25,8 @@
 
 ### 修复
 
+- 彩虹色相随时间轮转，光标头部不再固定为红色
+
 - 双屏/多屏整屏黑屏：每显示器独立 overlay
 - 透明改用 UpdateLayeredWindow 逐像素 alpha（OpenGL 读回 BGRA），避免 SwapBuffers/色键在 Win10/11 多屏下整屏黑
 - 发布 zip 内 exe 时间戳与构建时间对齐

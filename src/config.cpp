@@ -123,6 +123,7 @@ AppConfig AppConfig::load(const std::string& path) {
     grab_s("quit_hotkey", c.quit_hotkey);
     grab_f("rainbow_hue_head", c.rainbow_hue_head);
     grab_f("rainbow_hue_span", c.rainbow_hue_span);
+    grab_f("rainbow_cycle_speed", c.rainbow_cycle_speed);
     grab_f("stroke_scale", c.stroke_scale);
 
     size_t q = 0;
@@ -173,6 +174,7 @@ void AppConfig::save(const std::string& path) const {
     f << "  \"quit_hotkey\": \"" << quit_hotkey << "\",\n";
     f << "  \"rainbow_hue_head\": " << rainbow_hue_head << ",\n";
     f << "  \"rainbow_hue_span\": " << rainbow_hue_span << ",\n";
+    f << "  \"rainbow_cycle_speed\": " << rainbow_cycle_speed << ",\n";
     f << "  \"stroke_scale\": " << stroke_scale << "\n";
     f << "}\n";
 }

@@ -32,7 +32,7 @@ void hsv_to_rgb(float h, float s, float v, float& r, float& g, float& b) {
 }
 
 void pastel_rainbow(float hue, float& r, float& g, float& b) {
-    hsv_to_rgb(hue, 0.42f, 0.97f, r, g, b);
+    hsv_to_rgb(hue, 0.58f, 0.98f, r, g, b);
 }
 
 struct Sample {
@@ -225,7 +225,9 @@ void TrailSystem::push(float x, float y, double now, float speed, const AppConfi
             p.birth = now;
             p.life = 0.22f + static_cast<float>(std::rand()) / static_cast<float>(RAND_MAX) * 0.2f;
             p.size = 2.0f + static_cast<float>(std::rand()) / static_cast<float>(RAND_MAX) * 2.0f;
-            p.hue = cfg.rainbow_hue_head + (static_cast<float>(std::rand()) / static_cast<float>(RAND_MAX) - 0.5f) * 0.1f;
+            // Capture current cycling head hue so particles match the ribbon at spawn time.
+            const float head_hue = cfg.rainbow_hue_head + static_cast<float>(now) * cfg.rainbow_cycle_speed;
+            p.hue = head_hue + (static_cast<float>(std::rand()) / static_cast<float>(RAND_MAX) - 0.5f) * 0.1f;
             p.rot = static_cast<float>(std::rand()) / static_cast<float>(RAND_MAX) * 6.2831853f;
             p.spin = (static_cast<float>(std::rand()) / static_cast<float>(RAND_MAX) - 0.5f) * 16.0f;
             particles.push_back(p);
@@ -275,8 +277,10 @@ void TrailSystem::draw(float origin_x, float origin_y, float screen_h, double no
             const float base_a = clampf(cfg.opacity, 0.05f, 1.0f);
             // half-width; stroke_scale 3.0 from user config means thicker bar
             const float half = std::max(0.8f, cfg.ribbon_thickness * cfg.stroke_scale * 0.22f);
+            // Cursor head hue keeps cycling; span still paints a rainbow along the ribbon.
+            const float head_hue = cfg.rainbow_hue_head + static_cast<float>(now) * cfg.rainbow_cycle_speed;
             draw_soft_bar(samples, origin_x, origin_y, screen_h, half, base_a,
-                          cfg.rainbow_hue_head, cfg.rainbow_hue_span);
+                          head_hue, cfg.rainbow_hue_span);
         }
     }
 

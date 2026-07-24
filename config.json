@@ -12,5 +12,6 @@
   "quit_hotkey": "F9",
   "rainbow_hue_head": 0.95,
   "rainbow_hue_span": 0.85,
+  "rainbow_cycle_speed": 0.35,
   "stroke_scale": 3.0
 }
