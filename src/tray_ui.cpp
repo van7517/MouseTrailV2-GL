@@ -50,34 +50,53 @@ HFONT g_font = nullptr;
 HFONT g_font_title = nullptr;
 std::vector<std::string> g_list_exes;
 
-std::string exe_path() {
-    char buf[MAX_PATH]{};
-    GetModuleFileNameA(nullptr, buf, MAX_PATH);
-    return buf;
+// Always use wide APIs: GetModuleFileNameA + CP_UTF8 mangles Chinese paths.
+std::wstring exe_path_w() {
+    std::wstring path(MAX_PATH, L'\0');
+    DWORD n = GetModuleFileNameW(nullptr, path.data(), static_cast<DWORD>(path.size()));
+    if (n == 0) return {};
+    while (n >= path.size() - 1) {
+        path.resize(path.size() * 2, L'\0');
+        n = GetModuleFileNameW(nullptr, path.data(), static_cast<DWORD>(path.size()));
+        if (n == 0) return {};
+    }
+    path.resize(n);
+    return path;
 }
 
 bool is_autostart_enabled() {
     HKEY key = nullptr;
-    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, KEY_READ, &key) != ERROR_SUCCESS)
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+                      0, KEY_READ, &key) != ERROR_SUCCESS) {
         return false;
-    wchar_t val[MAX_PATH]{};
+    }
+    wchar_t val[4096]{};
     DWORD type = 0, size = sizeof(val);
-    const LONG r = RegQueryValueExW(key, L"MouseTrailV2", nullptr, &type, (LPBYTE)val, &size);
+    const LONG r = RegQueryValueExW(key, L"MouseTrailV2", nullptr, &type, reinterpret_cast<LPBYTE>(val), &size);
     RegCloseKey(key);
     return r == ERROR_SUCCESS && type == REG_SZ && val[0] != 0;
 }
 
 void set_autostart(bool enable) {
     HKEY key = nullptr;
-    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, KEY_SET_VALUE, &key) != ERROR_SUCCESS)
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+                      0, KEY_SET_VALUE, &key) != ERROR_SUCCESS) {
         return;
+    }
     if (enable) {
-        std::string path = exe_path();
-        // quote path
-        std::string q = "\"" + path + "\"";
-        wchar_t w[MAX_PATH + 4]{};
-        MultiByteToWideChar(CP_UTF8, 0, q.c_str(), -1, w, MAX_PATH + 4);
-        RegSetValueExW(key, L"MouseTrailV2", 0, REG_SZ, (const BYTE*)w, (DWORD)((wcslen(w) + 1) * sizeof(wchar_t)));
+        const std::wstring path = exe_path_w();
+        if (path.empty()) {
+            RegCloseKey(key);
+            return;
+        }
+        std::wstring cmd;
+        cmd.reserve(path.size() + 2);
+        cmd.push_back(L'"');
+        cmd += path;
+        cmd.push_back(L'"');
+        const DWORD bytes = static_cast<DWORD>((cmd.size() + 1) * sizeof(wchar_t));
+        RegSetValueExW(key, L"MouseTrailV2", 0, REG_SZ,
+                       reinterpret_cast<const BYTE*>(cmd.c_str()), bytes);
     } else {
         RegDeleteValueW(key, L"MouseTrailV2");
     }
