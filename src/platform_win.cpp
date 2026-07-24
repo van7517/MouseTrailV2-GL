@@ -7,6 +7,7 @@
 #define NOMINMAX
 #endif
 #include <Windows.h>
+#include <dwmapi.h>
 #include <algorithm>
 #include <cctype>
 
@@ -38,6 +39,38 @@ VirtualScreen get_virtual_screen() {
         s.h = GetSystemMetrics(SM_CYSCREEN);
     }
     return s;
+}
+
+static BOOL CALLBACK monitor_enum_proc(HMONITOR hMon, HDC, LPRECT, LPARAM lParam) {
+    auto* list = reinterpret_cast<std::vector<MonitorRect>*>(lParam);
+    MONITORINFO mi{};
+    mi.cbSize = sizeof(mi);
+    if (!GetMonitorInfoW(hMon, &mi)) return TRUE;
+    MonitorRect r;
+    r.x = mi.rcMonitor.left;
+    r.y = mi.rcMonitor.top;
+    r.w = mi.rcMonitor.right - mi.rcMonitor.left;
+    r.h = mi.rcMonitor.bottom - mi.rcMonitor.top;
+    if (r.w > 0 && r.h > 0) list->push_back(r);
+    return TRUE;
+}
+
+std::vector<MonitorRect> get_monitors() {
+    std::vector<MonitorRect> list;
+    EnumDisplayMonitors(nullptr, nullptr, monitor_enum_proc, reinterpret_cast<LPARAM>(&list));
+    if (list.empty()) {
+        // Fallback: single virtual desktop rect
+        const VirtualScreen vs = get_virtual_screen();
+        list.push_back({vs.x, vs.y, vs.w, vs.h});
+    }
+    // Stable order so hot-plug comparison is deterministic
+    std::sort(list.begin(), list.end(), [](const MonitorRect& a, const MonitorRect& b) {
+        if (a.x != b.x) return a.x < b.x;
+        if (a.y != b.y) return a.y < b.y;
+        if (a.w != b.w) return a.w < b.w;
+        return a.h < b.h;
+    });
+    return list;
 }
 
 CursorState get_cursor_state() {
@@ -121,3 +154,20 @@ void force_topmost(void* hwnd_void) {
                  SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
 }
 
+void enable_window_transparency(void* hwnd_void) {
+    HWND hwnd = static_cast<HWND>(hwnd_void);
+    if (!hwnd) return;
+
+    // Extend glass frame into entire client area so framebuffer alpha is composited.
+    // Without this, multi-monitor / large overlays often paint as solid black.
+    MARGINS margins = {-1, -1, -1, -1};
+    DwmExtendFrameIntoClientArea(hwnd, &margins);
+
+    // Empty blur region = fully transparent backdrop (classic GLFW/DWM pattern).
+    DWM_BLURBEHIND bb{};
+    bb.dwFlags = DWM_BB_ENABLE | DWM_BB_BLURREGION;
+    bb.fEnable = TRUE;
+    bb.hRgnBlur = CreateRectRgn(0, 0, -1, -1);
+    DwmEnableBlurBehindWindow(hwnd, &bb);
+    if (bb.hRgnBlur) DeleteObject(bb.hRgnBlur);
+}
