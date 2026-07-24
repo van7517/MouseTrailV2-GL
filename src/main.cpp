@@ -16,6 +16,11 @@
 #define GLFW_EXPOSE_NATIVE_WIN32
 #include <GLFW/glfw3native.h>
 
+// GL_BGRA_EXT — widely available on Windows WGL
+#ifndef GL_BGRA
+#define GL_BGRA 0x80E1
+#endif
+
 #include <chrono>
 #include <cmath>
 #include <filesystem>
@@ -31,6 +36,14 @@ struct OverlayWindow {
     int y = 0;
     int w = 0;
     int h = 0;
+
+    // Layered presentation resources (UpdateLayeredWindow per-pixel alpha)
+    HDC hdc_mem = nullptr;
+    HBITMAP dib = nullptr;
+    HGDIOBJ old_bmp = nullptr;
+    void* bits = nullptr;
+    int dib_w = 0;
+    int dib_h = 0;
 };
 
 static std::string config_path_appdata() {
@@ -50,7 +63,6 @@ static void hide_from_taskbar(HWND hwnd) {
     ex |= WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TRANSPARENT | WS_EX_LAYERED | WS_EX_TOPMOST;
     ex &= ~WS_EX_APPWINDOW;
     SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
-    // Re-apply topmost without activating
     SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
 }
 
@@ -59,8 +71,8 @@ static void apply_glfw_overlay_hints() {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
     glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);
     glfwWindowHint(GLFW_FLOATING, GLFW_TRUE);
-    // Color-key transparency (WS_EX_LAYERED + LWA_COLORKEY) is used instead of FB alpha.
-    glfwWindowHint(GLFW_TRANSPARENT_FRAMEBUFFER, GLFW_FALSE);
+    // Need an alpha-capable pixel format so glReadPixels gets A; presentation still uses UpdateLayeredWindow (no SwapBuffers).
+    glfwWindowHint(GLFW_TRANSPARENT_FRAMEBUFFER, GLFW_TRUE);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
     glfwWindowHint(GLFW_FOCUSED, GLFW_FALSE);
     glfwWindowHint(GLFW_FOCUS_ON_SHOW, GLFW_FALSE);
@@ -70,6 +82,81 @@ static void apply_glfw_overlay_hints() {
 #endif
 }
 
+static void free_layered_resources(OverlayWindow& o) {
+    if (o.hdc_mem) {
+        if (o.old_bmp) SelectObject(o.hdc_mem, o.old_bmp);
+        o.old_bmp = nullptr;
+        if (o.dib) {
+            DeleteObject(o.dib);
+            o.dib = nullptr;
+        }
+        DeleteDC(o.hdc_mem);
+        o.hdc_mem = nullptr;
+    }
+    o.bits = nullptr;
+    o.dib_w = 0;
+    o.dib_h = 0;
+}
+
+static bool ensure_layered_dib(OverlayWindow& o, int w, int h) {
+    if (w <= 0 || h <= 0) return false;
+    if (o.hdc_mem && o.dib && o.bits && o.dib_w == w && o.dib_h == h) return true;
+
+    free_layered_resources(o);
+
+    HDC hdc_screen = GetDC(nullptr);
+    if (!hdc_screen) return false;
+    o.hdc_mem = CreateCompatibleDC(hdc_screen);
+    ReleaseDC(nullptr, hdc_screen);
+    if (!o.hdc_mem) return false;
+
+    BITMAPINFO bmi{};
+    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bmi.bmiHeader.biWidth = w;
+    // Positive height = bottom-up DIB, matches OpenGL glReadPixels row order.
+    bmi.bmiHeader.biHeight = h;
+    bmi.bmiHeader.biPlanes = 1;
+    bmi.bmiHeader.biBitCount = 32;
+    bmi.bmiHeader.biCompression = BI_RGB;
+
+    void* bits = nullptr;
+    o.dib = CreateDIBSection(o.hdc_mem, &bmi, DIB_RGB_COLORS, &bits, nullptr, 0);
+    if (!o.dib || !bits) {
+        free_layered_resources(o);
+        return false;
+    }
+    o.bits = bits;
+    o.old_bmp = SelectObject(o.hdc_mem, o.dib);
+    o.dib_w = w;
+    o.dib_h = h;
+    return true;
+}
+
+// Present current GL framebuffer as a per-pixel-alpha layered window.
+// This is the reliable path on Win10/11: OpenGL SwapBuffers + DWM/color-key often paints solid black.
+static void present_layered(OverlayWindow& o, int fbw, int fbh) {
+    if (!o.hwnd || fbw <= 0 || fbh <= 0) return;
+    if (!ensure_layered_dib(o, fbw, fbh)) return;
+
+    glFinish();
+    glReadPixels(0, 0, fbw, fbh, GL_BGRA, GL_UNSIGNED_BYTE, o.bits);
+
+
+    POINT pt_pos{o.x, o.y};
+    POINT pt_src{0, 0};
+    SIZE size{fbw, fbh};
+    BLENDFUNCTION blend{};
+    blend.BlendOp = AC_SRC_OVER;
+    blend.BlendFlags = 0;
+    blend.SourceConstantAlpha = 255;
+    blend.AlphaFormat = AC_SRC_ALPHA; // premultiplied BGRA
+
+    HDC hdc_screen = GetDC(nullptr);
+    if (!hdc_screen) return;
+    UpdateLayeredWindow(o.hwnd, hdc_screen, &pt_pos, &size, o.hdc_mem, &pt_src, 0, &blend, ULW_ALPHA);
+    ReleaseDC(nullptr, hdc_screen);
+}
+
 static void setup_overlay_hwnd(OverlayWindow& o) {
     o.hwnd = glfwGetWin32Window(o.window);
     apply_overlay_styles(o.hwnd);
@@ -77,9 +164,6 @@ static void setup_overlay_hwnd(OverlayWindow& o) {
     enable_window_transparency(o.hwnd);
 }
 
-// One transparent overlay per physical monitor.
-// Spanning the whole virtual desktop with a single OpenGL window is a common
-// cause of solid black screens on multi-monitor setups (DWM alpha composition fails).
 static std::vector<OverlayWindow> create_overlays(const std::vector<MonitorRect>& monitors) {
     std::vector<OverlayWindow> out;
     out.reserve(monitors.size());
@@ -103,9 +187,14 @@ static std::vector<OverlayWindow> create_overlays(const std::vector<MonitorRect>
         glfwShowWindow(o.window);
         setup_overlay_hwnd(o);
 
-        // First context: disable vsync; later contexts inherit preference when made current.
         glfwMakeContextCurrent(o.window);
         glfwSwapInterval(0);
+
+        // Initial fully-transparent present so we never flash opaque black.
+        glViewport(0, 0, m.w, m.h);
+        glClearColor(0.f, 0.f, 0.f, 0.f);
+        glClear(GL_COLOR_BUFFER_BIT);
+        present_layered(o, m.w, m.h);
 
         out.push_back(o);
     }
@@ -113,9 +202,9 @@ static std::vector<OverlayWindow> create_overlays(const std::vector<MonitorRect>
 }
 
 static void destroy_overlays(std::vector<OverlayWindow>& overlays) {
-    // First window is the GL share parent; destroy shared children first, parent last.
     glfwMakeContextCurrent(nullptr);
     for (size_t i = overlays.size(); i-- > 0;) {
+        free_layered_resources(overlays[i]);
         if (overlays[i].window) {
             glfwDestroyWindow(overlays[i].window);
             overlays[i].window = nullptr;
@@ -147,7 +236,7 @@ static void render_overlay(OverlayWindow& o, const TrailSystem& trail, bool enab
     if (fbw <= 0 || fbh <= 0) return;
 
     glViewport(0, 0, fbw, fbh);
-    glClearColor(0.f, 0.f, 0.f, 1.f); // pure black = color-key transparent
+    glClearColor(0.f, 0.f, 0.f, 0.f);
     glClear(GL_COLOR_BUFFER_BIT);
 
     int win_w = 0, win_h = 0;
@@ -164,12 +253,13 @@ static void render_overlay(OverlayWindow& o, const TrailSystem& trail, bool enab
     glScalef(sx, sy, 1.f);
 
     if (enabled) {
-        // origin = this monitor's top-left in virtual-desktop coords
         trail.draw(static_cast<float>(o.x), static_cast<float>(o.y),
                    static_cast<float>(o.h), now, cfg);
     }
 
-    glfwSwapBuffers(o.window);
+    // Critical: do NOT glfwSwapBuffers — DWM would show opaque GL backbuffer (black).
+    // Present premultiplied framebuffer through UpdateLayeredWindow instead.
+    present_layered(o, fbw, fbh);
 }
 
 static int run_app(HINSTANCE inst) {
@@ -208,7 +298,6 @@ static int run_app(HINSTANCE inst) {
     auto t_prev = std::chrono::steady_clock::now();
 
     while (running) {
-        // Pump Win32 messages for tray/settings
         MSG msg;
         while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
             if (msg.message == WM_QUIT) {
@@ -246,7 +335,6 @@ static int run_app(HINSTANCE inst) {
             }
         }
 
-        // Hot-plug / resolution / layout changes: rebuild per-monitor overlays
         if (frame % 60 == 0) {
             monitors = get_monitors();
             if (!monitors_match(overlays, monitors)) {
@@ -258,7 +346,6 @@ static int run_app(HINSTANCE inst) {
                 }
                 ctrl.overlay_hwnd = overlays.front().hwnd;
             } else {
-                // Keep position/size in sync if OS nudged the windows
                 for (size_t i = 0; i < overlays.size(); ++i) {
                     auto& o = overlays[i];
                     int w = 0, h = 0, wx = 0, wy = 0;
@@ -318,7 +405,6 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     return run_app(inst);
 }
 
-// Keep console-less entry for MSVC
 #ifdef _MSC_VER
 #pragma comment(linker, "/SUBSYSTEM:WINDOWS")
 #endif

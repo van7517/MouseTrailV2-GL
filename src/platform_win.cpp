@@ -11,7 +11,6 @@
 #include <cctype>
 
 void enable_dpi_awareness() {
-    // Prefer Per-Monitor V2 so monitor rects and GLFW sizes stay in the same space.
     HMODULE user32 = LoadLibraryW(L"User32.dll");
     if (user32) {
         typedef BOOL(WINAPI* SetProcessDpiAwarenessContext_t)(HANDLE);
@@ -153,10 +152,12 @@ void apply_overlay_styles(void* hwnd_void) {
     HWND hwnd = static_cast<HWND>(hwnd_void);
     if (!hwnd) return;
     LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+    // WS_EX_LAYERED required for UpdateLayeredWindow. Do NOT SetLayeredWindowAttributes —
+    // that switches the window into color-key/constant-alpha mode and breaks per-pixel alpha.
     ex |= WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TOPMOST;
     SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
     SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
-                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED | SWP_SHOWWINDOW);
 }
 
 void force_topmost(void* hwnd_void) {
@@ -170,16 +171,13 @@ void enable_window_transparency(void* hwnd_void) {
     HWND hwnd = static_cast<HWND>(hwnd_void);
     if (!hwnd) return;
 
-    // Win10/11: OpenGL framebuffer alpha + DwmBlur is unreliable and often paints
-    // a solid black fullscreen overlay (worse with multi-monitor).
-    // Color-key pure black as transparent is stable for this click-through trail use-case.
+    // Toggle WS_EX_LAYERED off/on to clear any SetLayeredWindowAttributes state
+    // (color-key / constant-alpha mode). UpdateLayeredWindow needs a clean layered window.
     LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+    SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex & ~WS_EX_LAYERED);
     ex |= WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TOPMOST;
+    ex &= ~WS_EX_APPWINDOW;
     SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
-
-    // RGB(0,0,0) pixels become fully transparent. Trail body uses pastel colors (never pure black).
-    SetLayeredWindowAttributes(hwnd, RGB(0, 0, 0), 0, LWA_COLORKEY);
-
     SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
                  SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED | SWP_SHOWWINDOW);
 }

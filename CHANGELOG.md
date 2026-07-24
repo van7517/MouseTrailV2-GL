@@ -26,7 +26,7 @@
 ### 修复
 
 - 双屏/多屏整屏黑屏：每显示器独立 overlay
-- 透明改用 `WS_EX_LAYERED` + 黑色色键（`LWA_COLORKEY`），避免 Win10/11 上 OpenGL/DWM 帧缓冲透明失效导致整屏黑
+- 透明改用 UpdateLayeredWindow 逐像素 alpha（OpenGL 读回 BGRA），避免 SwapBuffers/色键在 Win10/11 多屏下整屏黑
 - 发布 zip 内 exe 时间戳与构建时间对齐
 
 ## [0.1.1] - 2026-07-23
